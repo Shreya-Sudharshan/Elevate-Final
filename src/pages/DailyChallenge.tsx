@@ -50,14 +50,14 @@ export const DailyChallenge: React.FC = () => {
   const [completed, setCompleted] = useState(false);
   const navigate = useNavigate();
   const triggerXpGain = useGameStore(state => state.triggerXpGain);
-  const { user, updateUser } = useAuthStore();
+  const { user, updateUser, updateUserXp } = useAuthStore();
 
   const handleAnswerSelect = (answerIndex: number) => {
     if (showResult) return;
     setSelectedAnswer(answerIndex);
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (selectedAnswer === null && !showResult) return;
 
     const newAnswers = [...answers, selectedAnswer];
@@ -80,19 +80,18 @@ export const DailyChallenge: React.FC = () => {
         
         const xpReward = correctAnswers * 10; // 10 XP per correct answer
         
-        // Update user XP and level
+        // Update user XP and level using centralized function
         if (user) {
-          const newXp = user.currentXp + xpReward;
-          const newLevel = Math.max(Math.floor(newXp / 150) + 1, user.level);
+          updateUserXp(xpReward, 'daily-challenge');
+          
+          // Update streak separately
           updateUser({ 
-            currentXp: newXp,
-            level: newLevel,
             streakDays: user.streakDays + 1
           });
           
           console.log('Daily Challenge XP Update:', { 
             oldXp: user.currentXp, 
-            newXp, 
+            newXp: user.currentXp + xpReward, 
             xpReward, 
             correctAnswers 
           });

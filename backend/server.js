@@ -747,32 +747,47 @@ class EnhancedTaskService extends TaskService {
 }
 
 // Enhanced system prompt
-const ENHANCED_AGENT_PROMPT = `You are an advanced AI Career Coach with deep analytical capabilities. You can:
+const ENHANCED_AGENT_PROMPT = `You are an AI Career Coach focused on helping users with their learning journey through specific modules and tasks.
+
+PRIORITY FOCUS:
+- ALWAYS use get_user_module_progress to check what modules the user has completed
+- ALWAYS use get_recommended_modules to suggest specific next modules to learn
+- Focus on the available learning modules in the system, not generic career advice
+- When users ask "what should I learn next?", provide specific module recommendations
 
 CORE CAPABILITIES:
-- Analyze performance trends and patterns
-- Conduct skill gap analysis
-- Create detailed action plans
-- Benchmark against peers
-- Predict career trajectories
+- Check user's completed modules and progress
+- Recommend specific next modules based on their role and completion status
+- Help with task management and completion
+- Provide guidance on available learning paths
 
-ANALYTICAL APPROACH:
-1. Always gather comprehensive data before making recommendations
-2. Look for patterns and correlations across different data points
-3. Consider both quantitative metrics and qualitative factors
-4. Provide specific, actionable insights rather than generic advice
-5. Anticipate potential challenges and suggest mitigation strategies
+RESPONSE GUIDELINES:
+1. For learning questions, ALWAYS call get_user_module_progress first
+2. Then call get_recommended_modules to get specific module suggestions
+3. Present the recommended modules with their titles, categories, difficulty, and XP rewards
+4. Explain why each module is recommended based on their role and progress
+5. Keep responses focused on the available modules in the system
 
-ADVANCED REASONING:
-- Connect task completion patterns to skill development opportunities
-- Identify hidden bottlenecks in user's workflow
-- Recognize signs of burnout or disengagement early
-- Suggest proactive career moves based on trend analysis
-- Recommend optimal learning paths based on role trajectory
+When users ask "what should I learn next?" or similar questions:
+- ALWAYS call get_user_module_progress first to check their progress
+- ALWAYS call get_recommended_modules to get specific module suggestions
+- Present the recommended modules with their exact titles, categories, difficulty levels, and XP rewards
+- Explain why each specific module is recommended for their role
+- Focus ONLY on the modules returned by get_recommended_modules
+- Do NOT give generic career advice - only recommend the specific modules from the system
 
-When users ask complex questions, break them down into components, gather relevant data from multiple tools, synthesize insights, and provide comprehensive strategic guidance.
+Example response format:
+"Based on your role as [Role], here are your recommended next modules:
 
-Always explain your reasoning process and the data behind your recommendations.`;
+1. [Module Title] - [Category] (Difficulty: [Level], +[XP] XP)
+   [Description and why it's important for your role]
+
+2. [Module Title] - [Category] (Difficulty: [Level], +[XP] XP)
+   [Description and why it's important for your role]
+
+[Continue with 3-5 specific modules]"
+
+Always focus on the specific modules available in the system rather than giving generic career advice.`;
 
 const toolHandlers = {
   get_user_tasks: async (args, userId) => {
@@ -797,36 +812,44 @@ const toolHandlers = {
       const role = profile.success ? profile.profile.role : 'Data Scientist';
       const isBA = role.includes('Business');
 
-      // Get catalog filtered by role
-      let { data: mods, error } = await supabase.from('modules').select('*');
-      if (error) throw error;
-      const catalog = (mods || []).map((m) => ({
-        id: m.id,
-        title: m.title,
-        category: m.category,
-        difficulty: m.difficulty,
-        xpReward: m.xp_reward,
-        role: m.role,
-      })).filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
-
-      // Get progress
-      const { data: prog } = await supabase
-        .from('user_modules')
-        .select('module_id, progress')
-        .eq('user_id', userId);
-      const done = new Set((prog || []).filter(p => (p.progress || 0) >= 100).map(p => p.module_id));
+      // Use default modules since database might have RLS issues
+      const catalog = defaultModules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
+      
+      // Try to get progress from database, but don't fail if it doesn't work
+      let done = new Set();
+      try {
+        const { data: prog } = await supabase
+          .from('user_modules')
+          .select('module_id, progress')
+          .eq('user_id', userId);
+        done = new Set((prog || []).filter(p => (p.progress || 0) >= 100).map(p => p.module_id));
+      } catch (e) {
+        console.log('Could not fetch user progress, using empty set');
+      }
 
       // Recommend incomplete, sort by difficulty then xp
       const incomplete = catalog.filter(m => !done.has(m.id));
       incomplete.sort((a, b) => (a.difficulty - b.difficulty) || (b.xpReward - a.xpReward));
       const limit = Math.max(1, Math.min(5, (args && args.limit) || 3));
       const top = incomplete.slice(0, limit);
-      return { success: true, recommendations: top };
+      
+      return { 
+        success: true, 
+        recommendations: top,
+        role: role,
+        totalModules: catalog.length,
+        completedModules: done.size
+      };
     } catch (e) {
+      console.error('Error in get_recommended_modules:', e);
       // Fallback to built-in list
       const isBA = false;
       const catalog = defaultModules.filter((m) => (isBA ? m.id.startsWith('ba-') : m.id.startsWith('ds-')));
-      return { success: true, recommendations: catalog.slice(0, (args && args.limit) || 3) };
+      return { 
+        success: true, 
+        recommendations: catalog.slice(0, (args && args.limit) || 3),
+        fallback: true
+      };
     }
   },
   
@@ -1499,6 +1522,113 @@ app.post('/api/user-modules/progress', async (req, res) => {
     return res.json({ success: true });
   } catch (err) {
     return res.status(200).json({ success: true, fallback: true });
+  }
+});
+
+// Create or update user
+app.post('/api/users/upsert', async (req, res) => {
+  try {
+    const { id, email, firstName, lastName, role, currentXp, level, streakDays } = req.body;
+    if (!id) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    const userData = {
+      id,
+      email: email || 'user@example.com',
+      first_name: firstName || 'User',
+      last_name: lastName || 'Name',
+      role: role || 'Data Scientist',
+      current_xp: currentXp || 0,
+      level: level || 1,
+      streak_days: streakDays || 0
+    };
+
+    const { error } = await supabase
+      .from('users')
+      .upsert(userData, { onConflict: 'id' });
+
+    if (error) throw error;
+    
+    console.log(`User upserted: ${id} - ${firstName} ${lastName} (${currentXp} XP, Level ${level})`);
+    
+    return res.json({ 
+      success: true, 
+      user: userData
+    });
+  } catch (err) {
+    console.error('User upsert error:', err);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to upsert user' 
+    });
+  }
+});
+
+// Update user XP and level
+app.post('/api/users/update-xp', async (req, res) => {
+  try {
+    const { userId, xpGain, newXp, newLevel, source } = req.body;
+    if (!userId) {
+      return res.status(400).json({ success: false, error: 'userId is required' });
+    }
+
+    // First, try to get the user to see if they exist
+    const { data: existingUser, error: fetchError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (fetchError && fetchError.code !== 'PGRST116') {
+      throw fetchError;
+    }
+
+    // If user doesn't exist, create them with default values
+    if (!existingUser) {
+      const { error: createError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          email: 'user@example.com',
+          first_name: 'User',
+          last_name: 'Name',
+          role: 'Data Scientist',
+          current_xp: newXp,
+          level: newLevel,
+          streak_days: 0
+        });
+
+      if (createError) throw createError;
+      console.log(`Created new user: ${userId} with ${newXp} XP, Level ${newLevel}`);
+    } else {
+      // Update existing user
+      const { error } = await supabase
+        .from('users')
+        .update({ 
+          current_xp: newXp,
+          level: newLevel
+        })
+        .eq('id', userId);
+
+      if (error) throw error;
+    }
+    
+    console.log(`XP Update: User ${userId} gained ${xpGain} XP from ${source}. New total: ${newXp} XP, Level ${newLevel}`);
+    
+    return res.json({ 
+      success: true, 
+      xpGain, 
+      newXp, 
+      newLevel,
+      source 
+    });
+  } catch (err) {
+    console.error('XP update error:', err);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to update XP' 
+    });
   }
 });
 

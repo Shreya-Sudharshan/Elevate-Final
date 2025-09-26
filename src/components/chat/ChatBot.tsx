@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Bot, User, RefreshCw } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
-import { useModuleStore } from '../../stores/moduleStore';
 
 interface ChatMessage {
   id: string;
@@ -29,16 +28,9 @@ export const ChatBot: React.FC<ChatBotProps> = ({ isFullscreen = false }) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const user = useAuthStore(state => state.user);
 
-  const modules = useModuleStore(state => state.modules);
-
+  // Remove local module dependency - let backend handle recommendations
   const recommendFromModules = () => {
-    const role = user?.role;
-    const relevant = modules.filter(m => role==='Business Analyst' ? m.id.startsWith('ba-') : m.id.startsWith('ds-'));
-    const incomplete = relevant.filter(m => (m.progress ?? 0) < 100).slice(0,3);
-    if(!role) return "No role set.";
-    if(incomplete.length===0) return `All modules complete for ${role}!`;
-    return `Next steps for ${role}:
-${incomplete.map(m => `• ${m.title} (${m.category})`).join('\n')}`;
+    return "I'll check your learning progress and recommend what to learn next based on your completed modules.";
   };
 
 

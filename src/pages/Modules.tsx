@@ -26,7 +26,7 @@ export const Modules: React.FC = () => {
   const [difficultyFilter, setDifficultyFilter] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
-  const { user, updateUser } = useAuthStore();
+  const { user, updateUser, updateUserXp } = useAuthStore();
 
   // Backend-fetched modules based on role with progress
   const [apiModules, setApiModules] = useState(effectiveModules);
@@ -95,14 +95,14 @@ export const Modules: React.FC = () => {
     const module = source.find((m) => m.id === id);
     if (!module) return;
 
-    if (user) {
-      const newXp = user.currentXp + module.xpReward;
-      const newLevel = Math.floor(newXp / 150) + 1;
-      updateUser({
-        currentXp: newXp,
-        level: Math.max(newLevel, user.level),
-      });
+    console.log(`Completing module: ${module.title} for ${module.xpReward} XP`);
 
+    if (user) {
+      // Use centralized XP update function
+      console.log(`Before XP update: ${user.currentXp} XP`);
+      await updateUserXp(module.xpReward, `module-${id}`);
+      console.log(`After XP update: ${user.currentXp + module.xpReward} XP`);
+      
       setTimeout(() => {
         triggerXpGain(module.xpReward);
       }, 100);

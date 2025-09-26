@@ -40,7 +40,7 @@ export const Dashboard: React.FC = () => {
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
 
   const { tasks, completeTask, editTask, fetchTasks } = useTaskStore();
-  const { user, updateUser   } = useAuthStore();
+  const { user, updateUser, updateUserXp, syncCompletedTasksXp, syncCompletedModulesXp } = useAuthStore();
   const [apiModules, setApiModules] = useState(defaultModules);
 
 useEffect(() => {
@@ -48,6 +48,9 @@ useEffect(() => {
     fetchTasks(user.id);
     // Automatically ensure role-specific tasks exist
     ensureRoleTasks();
+    // Sync completed tasks and modules XP
+    syncCompletedTasksXp();
+    syncCompletedModulesXp();
   }
 }, [user?.id]);
 
@@ -125,7 +128,7 @@ const ensureRoleTasks = async () => {
   const xpNeededForNextLevel = xpPerLevel;
   const progressToNextLevel = Math.min(100, Math.max(0, (xpInCurrentLevel / xpNeededForNextLevel) * 100));
 
-  const handleTaskToggle = (taskId: string, points: number, currentStatus: string) => {
+  const handleTaskToggle = async (taskId: string, points: number, currentStatus: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || !user) return;
 
@@ -141,16 +144,10 @@ const ensureRoleTasks = async () => {
         level: newLevel,
       });
     } else {
-      // Complete task - add XP (preserves existing logic)
+      // Complete task - use centralized XP update
       completeTask(taskId);
       
-      const newXp = user.currentXp + points;
-      const newLevel = Math.floor(newXp / xpPerLevel) + 1;
-      
-      updateUser({
-        currentXp: newXp,
-        level: Math.max(newLevel, user.level),
-      });
+      await updateUserXp(points, `task-${taskId}`);
       
       // Trigger XP gain animation
       setTimeout(() => {
@@ -185,12 +182,16 @@ const ensureRoleTasks = async () => {
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-[#0B2447] mb-2">
-          Welcome back, {user.firstName}! 👋
-        </h1>
-        <p className="text-[#4A5568]">
-          Ready to continue your learning journey?
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-[#0B2447] mb-2">
+              Welcome back, {user.firstName}! 👋
+            </h1>
+            <p className="text-[#4A5568]">
+              Ready to continue your learning journey?
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

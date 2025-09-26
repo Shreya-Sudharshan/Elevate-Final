@@ -28,7 +28,7 @@ export const Checklist: React.FC = () => {
   });
 
   const triggerXpGain = useGameStore((state) => state.triggerXpGain);
-  const { user, updateUser } = useAuthStore();
+  const { user, updateUser, updateUserXp } = useAuthStore();
 
   const ensureRoleTasks = async () => {
     if (!user?.id || !user?.role) return;
@@ -75,20 +75,13 @@ export const Checklist: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         
-        // Update user XP
-        if (user) {
-          const newXp = user.currentXp + data.points;
-          const newLevel = Math.floor(newXp / 150) + 1;
-          updateUser({
-            currentXp: newXp,
-            level: Math.max(newLevel, user.level),
-          });
-
-          if (data.points > 0) {
-            setTimeout(() => {
-              triggerXpGain(data.points);
-            }, 100);
-          }
+        // Use centralized XP update
+        if (data.points > 0) {
+          await updateUserXp(data.points, `task-${taskId}`);
+          
+          setTimeout(() => {
+            triggerXpGain(data.points);
+          }, 100);
         }
 
         // Refresh tasks

@@ -37,11 +37,32 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatFullscreen, setChatFullscreen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
 
   if (!user) return null;
+
+  // Handle responsive behavior
+  useEffect(() => {
+    const handleResize = () => {
+      // Use a more conservative breakpoint and check for fullscreen
+      const isLargeScreen = window.innerWidth >= 1024;
+      const isFullscreen = document.fullscreenElement !== null || 
+                          (window.screen && window.screen.width === window.innerWidth);
+      setIsDesktop(isLargeScreen || isFullscreen);
+    };
+    
+    handleResize(); // Set initial value
+    window.addEventListener('resize', handleResize);
+    // Also listen for fullscreen changes
+    document.addEventListener('fullscreenchange', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      document.removeEventListener('fullscreenchange', handleResize);
+    };
+  }, []);
 
   // Keyboard shortcut for fullscreen toggle (F11 or Cmd/Ctrl + F)
   useEffect(() => {
@@ -115,7 +136,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
       <div className="flex">
         {/* Sidebar */}
         <AnimatePresence>
-          {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth >= 1024)) && (
+          {(sidebarOpen || window.innerWidth >= 1024) && (
             <>
               {/* Mobile overlay */}
               {sidebarOpen && (
@@ -129,10 +150,10 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
               )}
               
               <motion.nav
-                initial={{ x: -280 }}
+                initial={{ x: -320 }}
                 animate={{ x: 0 }}
-                exit={{ x: -280 }}
-                className="fixed lg:static top-0 left-0 h-full w-70 bg-white border-r border-[#D6D9E0] z-50 lg:z-auto"
+                exit={{ x: -320 }}
+                className="fixed lg:static top-0 left-0 h-full w-80 bg-white border-r border-[#D6D9E0] z-50 lg:z-auto"
               >
                 <div className="p-6">
                   <div className="flex items-center justify-between lg:hidden mb-6">
